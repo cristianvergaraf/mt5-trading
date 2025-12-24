@@ -10,45 +10,59 @@ def conectar_mt5():
     password = os.getenv("MT5_PASSWORD")
     server = os.getenv("MT5_SERVER")
 
-    # Validar que las variables existen
     if not all([login_str, password, server]):
         print("❌ Error: No se encontraron todas las variables en el archivo .env")
-        return
+        return False # Devolvemos False para controlar el flujo
 
     try:
         login = int(login_str)
     except ValueError:
-        print("❌ Error: MT5_LOGIN en el archivo .env debe ser un número.")
-        return
+        print("❌ Error: MT5_LOGIN debe ser un número.")
+        return False
 
-    # 1. Intentar establecer conexión con el terminal de MT5
+    # Inicializar
     if not mt5.initialize(login=login, password=password, server=server):
-        # Eliminamos password del print por seguridad
-        print(f"❌ Error al iniciar MT5 para el login {login} en el servidor {server}")
-        print(f"Código de error de MT5: {mt5.last_error()}")
-        return 
+        print(f"❌ Error al iniciar MT5: {mt5.last_error()}")
+        return False 
 
-    # 2. Obtener información de la cuenta
     cuenta = mt5.account_info()
-
     if cuenta is not None:
         print("-" * 30)
-        print(f"✅ CONEXIÓN EXITOSA")
-        print(f"Cuenta: {cuenta.login}")
-        print(f"Broker: {cuenta.company}")
-        print(f"Balance: {cuenta.balance} {cuenta.currency}")
+        print(f"✅ CONEXIÓN EXITOSA - Cuenta: {cuenta.login} ({cuenta.currency})")
         print("-" * 30)
-        
-        # --- AQUÍ EMPIEZA TU LÓGICA DE TRADING ---
-        # Ejemplo: obtener_datos_para_rnn() o ejecutar_prediccion()
-        # -----------------------------------------
+        return True # Conexión confirmada
+    
+    return False
 
+def get_data_from(symbol="SP500m", n_bars=100):
+    # Verificamos si el símbolo existe y está visible
+    symbol_info = mt5.symbol_select(symbol, True)
+    if not symbol_info:
+        print(f"❌ Error: El símbolo {symbol} no está disponible.")
+        return None
+
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 1, n_bars)
+    print(rates)
+
+    if rates is not None and len(rates) > 0:
+        df = pd.DataFrame(rates)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        return df[['time', 'open', 'high', 'low', 'close']]
     else:
-        print(f"❌ Conectado al terminal, pero falló el login para la cuenta {login}")
-        print(f"Error: {mt5.last_error()}")
-
-    # 3. Cerrar la conexión solo al final de TODO el proceso
-    mt5.shutdown()
+        print("❌ No se pudieron obtener los datos.")
+        return None
 
 if __name__ == "__main__":
-    conectar_mt5()
+    # Controlamos que solo pida datos si la conexión fue exitosa
+    if conectar_mt5():
+        df = get_data_from()
+        if df is not None:
+            print(df.head())
+            #df.to_csv("sp500.csv")
+        
+        # Opcional: Aquí podrías llamar a tu RNN
+        # model.predict(df_btc)
+        
+        mt5.shutdown() # Cerramos solo si se abrió
+    else:
+        print("Finalizando script debido a error de conexión.")
